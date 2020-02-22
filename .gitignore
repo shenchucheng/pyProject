@@ -1,0 +1,4 @@
+*\.pyc
+__pycache__
+/tencentapi
+config.py

@@ -45,6 +45,7 @@ def sync_file(conf, default):
             )
 
     for l, r in __conf.items():
+        pan.compare(r or default+l.replace(os.sep, '.').replace(":", ''), l)
         pan.syncup(l, r or default+l.replace(os.sep, '.').replace(":", ''))
 
 
@@ -66,6 +67,5 @@ if __name__ == '__main__':
         help='config file path, default: {}'.format(__conffile)
     )
     args = parser.parse_args()
-    pan.compare("test", r"C:\Users\cheng\test")
-    # sync_file(args.config, args.remote)
+    sync_file(args.config, args.remote)
 

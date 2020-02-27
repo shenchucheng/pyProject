@@ -3,16 +3,18 @@ import os
 import yaml
 from os.path import join, abspath, exists, dirname
 from bypy import __file__ as __bypy_path
-
-__bypy_path = join(dirname(__bypy_path), "bypy_dev.py")
-if not exists(__bypy_path):
-    with open(join(dirname(__bypy_path), "bypy.py")) as f:
-        lines = f.read()
-    # lines = lines.replace("from .", "from bypy.").replace("from bypy. ", "from bypy ")
-    lines = lines.replace("md5 = f['md5']", "md5 = f['block_list'][0]")
-    with open(__bypy_path, "w") as f:
-        f.write(lines)
-from bypy.bypy_dev import ByPy
+try:
+    from bypy.bypy_dev import ByPy
+except ModuleNotFoundError:
+    __bypy_path = join(dirname(__bypy_path), "bypy_dev.py")
+    if not exists(__bypy_path):
+        with open(join(dirname(__bypy_path), "bypy.py")) as f:
+            lines = f.read()
+        # lines = lines.replace("from .", "from bypy.").replace("from bypy. ", "from bypy ")
+        lines = lines.replace("md5 = f['md5']", "md5 = f['block_list'][0]")
+        with open(__bypy_path, "w") as f:
+            f.write(lines)
+    from bypy.bypy_dev import ByPy
 
 
 def __get_file(top=".", **kwargs):

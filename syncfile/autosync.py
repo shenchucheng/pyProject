@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
 import os
 import yaml
-from bypy import ByPy
+from os.path import join, abspath, exists, dirname
+from bypy import __file__ as __bypy_path
+
+__bypy_path = join(dirname(__bypy_path), "bypy_dev.py")
+if not exists(__bypy_path):
+    with open(join(dirname(__bypy_path), "bypy.py")) as f:
+        lines = f.read()
+    # lines = lines.replace("from .", "from bypy.").replace("from bypy. ", "from bypy ")
+    lines = lines.replace("md5 = f['md5']", "md5 = f['block_list'][0]")
+    with open(__bypy_path, "w") as f:
+        f.write(lines)
+from bypy.bypy_dev import ByPy
 
 
-pan = ByPy()
-__home = os.path.expanduser("~")
-__default = ".TransferStation/"
-__conffile = os.path.join(__home, ".bypy", "sync.conf")
+def __get_file(top=".", **kwargs):
+    ws = os.walk(abspath(top), **kwargs)
+    files = []
+    dirs = []
+    for i in ws:
+        path = i[0]
+        for i1 in i[1]:
+            dirs.append(join(path, i1))
+        for i2 in i[2]:
+            files.append(join(path, i2))
+    return dirs, files
 
 
 def sync_file(conf, default):
@@ -20,18 +38,24 @@ def sync_file(conf, default):
 
     with open(conf) as f:
         __conf = yaml.load(f, Loader=yaml.FullLoader)
-        if conf is None:
+        if __conf is None:
             raise NotImplementedError(
                 "Fatal Error: syncup conf file without setting. " +
-                "File has initialised in {}".format(__conffile)
+                "File has initialised in {}".format(conf)
             )
 
     for l, r in __conf.items():
-        pan.syncup(l, r or __default+l.replace(os.sep, '.').replace(":", ''))
+        pan.syncup(l, r or default+l.replace(os.sep, '.').replace(":", ''))
+
+
+pan = ByPy()
 
 
 if __name__ == '__main__':
     import argparse
+    __default = ".TransferStation/"
+    __home = os.path.expanduser("~")
+    __conffile = os.path.join(__home, ".bypy", "sync.conf")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--remote', '-r', default=__default,
@@ -42,5 +66,6 @@ if __name__ == '__main__':
         help='config file path, default: {}'.format(__conffile)
     )
     args = parser.parse_args()
-    sync_file(args.config, args.remote)
+    pan.compare("test", r"C:\Users\cheng\test")
+    # sync_file(args.config, args.remote)
 

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
- 
-# 引入云API入口模块
- 
-
 import os
 import base64
 import hashlib
@@ -15,40 +11,92 @@ import json
 import urllib.parse
 import yaml 
 import urllib3
-conf_dir = os.path.join(os.path.expanduser("~"), ".pyconfig")
-if not os.path.exists(conf_dir):
-    os.mkdir(conf_dir)
-
-
-def parser(conf):
-    """
-    parse the args from the config file
-    :param conf:  config file path;
-    default at ~/.pyconfig/tencentapi.conf
-    :return:  dict
-    """
-    if not os.path.exists(conf):
-        with open(conf, "w") as f:
-            f.write("# App: TencentAPI\n")
-            f.write("# Description: Tencent api need SecretId and secretKey\n")
-            f.write("# Example: \n")
-            f.write("#secretId: gsh67*^*&&%GSuhosgaj\n#secretKey: y9habgcschgvajnlKHg")
-    with open(conf) as f:
-        __conf = yaml.load(f, Loader=yaml.FullLoader)
-        if __conf is None:
-            raise NotImplementedError(
-                "Fatal Error: TencentApi conf file without setting. " +
-                "File has initialised in {}".format(conf)
-            )
-        return __conf
 
 
 class Api:
-    def __init__(self, conf_path=os.path.join(conf_dir, "tencentapi.conf")):
-        info = parser(conf_path)
-        self.secretId = info["secretId"]
-        self.secretKey = info["secretKey"]
- 
+    def __init__(self, conf_path="", conf_dir=""):
+        """
+        :param conf_path: config file path
+               default: .pyproject/tencentapi/api.conf at config_dir
+        :param conf_dir: files produced saved at this dir
+               default: ~/.pyproject/tencentapi/
+        """
+        if not conf_dir:
+            conf_dir = os.path.join(os.path.expanduser("~"), ".pyconfig", "tencentapi")
+            if not os.path.exists(conf_dir):
+                os.makedirs(conf_dir)
+        if not conf_path:
+            conf_path = os.path.join(conf_dir, "tencentapi.conf")
+        self.conf_dir = conf_dir
+        self.conf_path = conf_path
+        self.__conf_doc = ''
+        self.config = self.parser()
+        self.secretId = self.config["secretId"]
+        self.secretKey = self.config["secretKey"]
+
+    @property
+    def conf_doc(self):
+        if not self.__conf_doc:
+            with open(self.conf_path, "a+") as f:
+                if f.tell() > 0:
+                    f.seek(0)
+                    self.__conf_doc = f.read()
+                else:
+                    self.__conf_doc = _conf_doc_pre
+        return self.__conf_doc
+
+    @conf_doc.setter
+    def conf_doc(self, doc: str):
+        # lines = self.conf_doc.splitlines(True)
+        # doc_pre = "".join(lines[:5])
+        lines = doc.splitlines(True)
+        _ = ""
+        for line in lines:
+            if not line.startswith("#"):
+                line = "# " + line
+            _ += line
+        # doc = _ if doc.startswith(doc_pre) else doc_pre+_
+        if doc not in self.conf_doc:
+            doc = "\n\n" + doc
+            self.__conf_doc += doc
+
+    def create_conf(self, conf=""):
+        with open(conf or self.conf_path, "w") as f:
+            f.write(self.conf_doc)
+
+    # def create_conf(self):
+    #     conf_path = self.conf_path
+    #     self.__create_conf(conf_path)
+        # if os.path.exists(conf_path):
+        #     with open(conf_path) as f:
+        #         _ = ""
+        #         for line in f:
+        #             if line.startswith("#"):
+        #                 continue
+        #             if line == "\n":
+        #                 continue
+        #             _ += line
+        #     with open(conf_path, "w") as f:
+        #         f.write(self.conf_doc+"\n"+_)
+        # else:
+        #     self.__create_conf(conf_path)
+
+    def parser(self):
+        """
+        parser the args for configure file
+        :return: config dict
+        """
+        if not os.path.exists(self.conf_path):
+            self.create_conf(self.conf_path)
+        with open(self.conf_path) as f:
+            conf = yaml.load(f, Loader=yaml.FullLoader)
+        if conf is None:
+            raise NotImplementedError(
+                "Fatal Error: TencentApi conf file without setting. " +
+                "File has initialised in {}".format(self.conf_path)
+            )
+        return conf
+
     def get(self, action, module='cns', **params):
         config = {
             'Action': action,
@@ -81,9 +129,32 @@ class CnsApi(Api):
     https://cloud.tencent.com/document/product/302/3875
     接口请求域名：cns.api.qcloud.com
     """
-    def record_list(self, domain, **kwargs):
+    def __init__(self, *domains, **kwargs):
         """
-        :param domain: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）
+        :param domain: such as "baidu.com", "bing.cn"
+        :param kwargs:
+        """
+        super().__init__(**kwargs)
+        try:
+            self.domains = domains or self.config["domains"]
+        except KeyError:
+            self.conf_doc = "# domain\n# Example\n# domains: !!set\n#   ab.com: \n#   cd.cn: \n"
+            self.create_conf()
+            raise Exception("domain not set,please check the config file at {}".format(self.conf_path))
+        with open(os.path.join(self.conf_dir, "record.list"), "a+") as f:
+            f.seek(0)
+            self.records = yaml.load(f, yaml.SafeLoader) or {}
+
+    def __record_list(self, domain, **kwargs):
+        ret = self.get(action='RecordList', domain=domain, **kwargs)["data"]
+        with open(os.path.join(self.conf_dir, "record.list"), "a+") as f:
+            yaml.dump({domain: ret}, f)
+        self.records[domain] = ret
+
+    def record_list(self, update=False, *domains, **kwargs):
+        """
+        :param update: bool if update will update self.records
+        :param domains: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）
         :param kwargs:
             offset int 偏移量，默认为0。关于offset的更进一步介绍参考 接口请求参数
             length int 返回数量，默认20，最大值100
@@ -92,7 +163,15 @@ class CnsApi(Api):
             qProjectId int （过滤条件）项目 ID
         :return:
         """
-        ret = self.get(action='RecordList', domain=domain, **kwargs)["data"]
+        ret = {}
+        domains = domains or self.domains
+        if update:
+            for i in domains:
+                self.__record_list(i, **kwargs)
+        for i in domains:
+            if i not in self.records.keys():
+                self.__record_list(i, **kwargs)
+            ret[i] = self.records[i]
         return ret
 
     def record_modify(self, domain, subDomain, value, recordId,
@@ -111,7 +190,7 @@ class CnsApi(Api):
         """
         return self.get(action='RecordModify', domain=domain, subDomain=subDomain,
                         value=value, recordId=recordId, recordType=recordType,
-                        recordLine="默认", **kwargs **kwargs)
+                        recordLine="默认", **kwargs)
 
     def record_create(self, **kwargs):
         return self.get(action='RecordCreate', **kwargs)
@@ -120,10 +199,22 @@ class CnsApi(Api):
         return self.get(action='RecordDelete', **kwargs)
 
 
-if __name__ == "__main__":
-    api = Api()
-    __domain = 'phichem.xyz'
-    data = api.record_list(domain=__domain)
-    with open(os.path.join(conf_dir, "record.list"), "w") as f:
-        yaml.dump({__domain: data}, f)
+def get_conf_doc_pre():
+    doc = ''
+    doc += "# App: TencentAPI\n"
+    doc += "# Description: Tencent api need SecretId and secretKey\n"
+    doc += "# Id-Key\n"
+    doc += "# How to get Id&Key see https://cloud.tencent.com/developer/article/1385239\n"
+    doc += "# Example: \n"
+    doc += "# secretId: idAafkSyAJohQSnRidZShsDLsDuMqYUgWecQ\n"
+    doc += "# secretKey: zAuhBlapaarSHJMrKfYtheLyMgLUvqrL\n"
+    return doc
 
+
+_conf_doc_pre = get_conf_doc_pre()
+
+
+if __name__ == "__main__":
+    api = CnsApi()
+    records = api.record_list(update=True)
+    print(records)

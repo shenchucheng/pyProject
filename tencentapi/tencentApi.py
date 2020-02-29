@@ -109,7 +109,11 @@ class Api:
         params_all = dict(config, **params)
         params_sorted = sorted(params_all.items(), key=operator.itemgetter(0))
         srcStr = 'GET{0}'.format(url_base) + ''.join("%s=%s&" % (k, v) for k, v in dict(params_sorted).items())[:-1]
-        signStr = base64.b64encode(hmac.new(bytes(self.secretKey, encoding='utf-8'), bytes(srcStr, encoding='utf-8'), digestmod=hashlib.sha256).digest()).decode('utf-8')
+        signStr = base64.b64encode(
+            hmac.new(bytes(self.secretKey, encoding='utf-8'),
+            bytes(srcStr, encoding='utf-8'),
+            digestmod=hashlib.sha256).digest()
+        ).decode('utf-8')
         config['Signature'] = signStr
         params_last = dict(config, **params)
         params_url = urllib.parse.urlencode(params_last)
@@ -147,6 +151,10 @@ class CnsApi(Api):
 
     def __record_list(self, domain, **kwargs):
         ret = self.get(action='RecordList', domain=domain, **kwargs)["data"]
+        # __records = {}
+        # for i in ret["records"]:
+        #     __records[i.pop("name")] = i
+        # ret["records"] = __records
         with open(os.path.join(self.conf_dir, "record.list"), "a+") as f:
             yaml.dump({domain: ret}, f)
         self.records[domain] = ret
@@ -174,8 +182,8 @@ class CnsApi(Api):
             ret[i] = self.records[i]
         return ret
 
-    def record_modify(self, domain, subDomain, value, recordId,
-                      recordType, recordLine="默认", **kwargs):
+    def record_modify(self, domain, subDomain, value='', recordId='',
+                      recordType='', recordLine='', update=False, **kwargs):
         """
         :param domain: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）
         :param subDomain: str 子域名，例如：www
@@ -183,20 +191,82 @@ class CnsApi(Api):
         :param recordId: int 解析记录的 ID，可通过 RecordList 接口返回值中的 ID 获取
         :param recordType: str 记录类型，可选的记录类型为："A"，"CNAME"，"MX"，"TXT"，"NS"，"AAAA"，"SRV"
         :param recordLine: str 记录的线路名称，例如："默认"
+        :param update: if not update, will compare with cache
         :param kwargs:
         ttl int TTL 值，范围1 - 604800，不同等级域名最小值不同，默认为 600
         mx	int	MX 优先级，范围为0 ~ 50，当 recordType 选择 MX 时，mx 参数必选
         :return:
         """
-        return self.get(action='RecordModify', domain=domain, subDomain=subDomain,
-                        value=value, recordId=recordId, recordType=recordType,
-                        recordLine="默认", **kwargs)
+        info = self.get_record_info(domain, name=subDomain, update=update)
+        __value, __recordId, __recordType, __recordLine = list(
+            info[i] for i in ("value", "id", "type", "line")
+        )
+        value, recordId, recordType, recordLine = (
+            value or __value,
+            recordId or __recordId,
+            recordType or __recordType,
+            recordLine or __recordLine
+        )
+        if not any((value, recordId, recordType, recordLine)):
+            raise ValueError("Please do not let all params blank")
+        elif (value, recordId, recordType, recordLine) != (
+                __value, __recordId, __recordType, __recordLine):
+            ret = self.get(action='RecordModify', domain=domain, subDomain=subDomain,
+                           value=value, recordId=recordId, recordType=recordType,
+                           recordLine=recordLine, **kwargs)["data"]
+            if type(ret) == dict:
+                for rd in self.records[domain]["records"]:
+                    if rd["id"] == recordId:
+                        rd.update(ret["record"])
+                        info = rd
+                        break
+                with open(os.path.join(self.conf_dir, "record.list"), "a+") as f:
+                    yaml.dump(self.records, f)
+        return info
 
     def record_create(self, **kwargs):
         return self.get(action='RecordCreate', **kwargs)
 
     def record_delete(self, **kwargs):
         return self.get(action='RecordDelete', **kwargs)
+
+    def __get_record_info(self, domain, update=False, fetchone=True, **kwargs):
+        ret = self.record_list(domain, update=update)[domain]["records"]
+        for i in ret.copy():
+            for k, v in kwargs.items():
+                if i[k] != v:
+                    ret.remove(i)
+                    break
+                if fetchone:
+                    return i
+        return ret
+
+    def get_record_info(self, domain, info="*", update=False, **kwargs):
+        """
+        :param domain:
+        :param info: get record info based on param info,
+            such as, id, type, value, updated_on
+            if not set ,info=*, will match all information
+        :param update: if update, update the domains
+        :param kwargs: filter
+            name; type; status ... ...
+        :return:
+        """
+        ret = self.__get_record_info(domain, update=update, **kwargs)
+        if info == "*":
+            return ret
+        if type(ret) == list:
+            return list(i.get(info) for i in ret)
+        return ret.get(info)
+
+    def get_record_id(self, domain, name, **kwargs):
+        return self.get_record_info(domain, name=name, info="id", **kwargs)
+
+    def get_record_value(self, domain, name, **kwargs):
+        return self.get_record_info(domain, name=name, info="value", **kwargs)
+
+    def get_record_updated_on(self, domain, name, **kwargs):
+        return self.get_record_info(domain, name=name, info="updated_on", **kwargs)
 
 
 def get_conf_doc_pre():
@@ -216,5 +286,8 @@ _conf_doc_pre = get_conf_doc_pre()
 
 if __name__ == "__main__":
     api = CnsApi()
-    records = api.record_list(update=True)
-    print(records)
+    domain_info = api.record_list()
+    print(domain_info)
+    from tencentapi.ddns import get_host_ip
+    ret = api.record_modify(list(api.domains)[0], "www", value=get_host_ip())
+    print(ret)

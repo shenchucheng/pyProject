@@ -89,7 +89,7 @@ class Api:
         if not os.path.exists(self.conf_path):
             self.create_conf(self.conf_path)
         with open(self.conf_path) as f:
-            conf = yaml.load(f, Loader=yaml.FullLoader)
+            conf = yaml.load(f, Loader=yaml.SafeLoader)
         if conf is None:
             raise NotImplementedError(
                 "Fatal Error: TencentApi conf file without setting. " +
@@ -151,7 +151,7 @@ class CnsApi(Api):
             yaml.dump({domain: ret}, f)
         self.records[domain] = ret
 
-    def record_list(self, update=False, *domains, **kwargs):
+    def record_list(self, *domains, update=False, **kwargs):
         """
         :param update: bool if update will update self.records
         :param domains: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）

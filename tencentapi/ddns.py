@@ -2,8 +2,8 @@ import os
 import socket
 import sqlite3
 import time
-
 from tencentapi.tencentApi import CnsApi
+
 
 def get_host_ip():
     """

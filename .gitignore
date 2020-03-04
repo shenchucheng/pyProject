@@ -1,7 +1,9 @@
 *\.pyc
+*\.backup
 __pycache__
 .idea
 /venv
-
+/tencentapi/ipv6*
+/tencentapi/log*
 config.py
 /learning/test

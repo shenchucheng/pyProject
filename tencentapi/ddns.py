@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-
+import sys
 import socket
 import sqlite3
 import time
 from random import randint
-from tencentApi import CnsApi
-
-api = CnsApi()
+sys.path.append("/home/cheng/pyProject/tencentapi/")
+from tencentApi import CnsApi as QcloudApi
 
 
 def get_host_ip():
@@ -22,43 +21,56 @@ def get_host_ip():
         s.close()
     return ip
 
-
-def modify_record_ipv6(ip=""):
-    return api.record_modify(
-        domain="phichem.xyz",
-        subDomain="ipv6",
-        value=ip or get_host_ip(),
-        recordType="AAAA",
-        recordId="541603110",
-        recordLine="默认"
-    )
-
+def recordmodify(value=None):
+    qcloud = QcloudApi()
+    ret = qcloud.get(action="RecordModify",
+                     domain="phichem.xyz", 
+                     subDomain="ipv6", 
+                     value=value or get_host_ip(), 
+                     recordType="AAAA", 
+                     recordId="541603110", 
+                     recordLine="默认")
+    return ret
 
 def main():
     try:
         ipv6 = get_host_ip()
-        print("ipv6 current: ", ipv6)
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        logger.info("current: {}, ipv6: {}".format(now, ipv6))
         con = sqlite3.connect("ipv6.db")
-        con.execute("insert into records values (?, ?)",
-                    (time.strftime("%Y-%M-%d %H:%m:%S"), ipv6))
-        with open("ipv6.txt") as f:
-            ipv6_ = f.read()
+        cur = con.execute("select max(time), ipv6 from records")
+        result = cur.fetchone()
+        last_time, ipv6_ = result
+        logger.info("last time: {}, ipv6 is {}".format(last_time, ipv6))
+        cur.execute("insert into records values (?, ?)",
+                    (now,ipv6))
         if ipv6_ != ipv6:
-            ret = modify_record_ipv6(ipv6)
-            print(ret, "\n", "ipv6 record change from {} to {}".format(ipv6_, ipv6))
-            with open("ipv6.txt", "w") as f:
-                f.write(ipv6)
+            ret = recordmodify(ipv6)
+            logger.info(str(ret))
+            logger.info("ipv6 record change from {} to {}".format(ipv6_, ipv6))
+            with open("ipv6.txt","a") as f:
+                f.write(ipv6)         
         else:
-            print("ipv6 does not change")
+            logger.info("ipv6 does not change")
 
     finally:
         con.commit()
         con.close()
-
-
 if __name__ == "__main__":
     import os
-    os.chdir(os.path.dirname(__file__))
+    os.chdir("/home/cheng/pyProject/tencentapi/")
+    import logging
+    logger = logging.getLogger("ddns")
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler("log.txt")
+    fh.setLevel(logging.INFO)
+    fmt = '%(asctime)s [%(levelname)s] %(filename)s[line:%(lineno)d] %(message)s'
+    datefmt = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter(fmt, datefmt)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
     while 1:
         main()
-        time.sleep(randint(300, 900))
+        time.sleep(randint(300,900))
+

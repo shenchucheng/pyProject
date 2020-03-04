@@ -111,7 +111,7 @@ class CnsApi(Api):
         """
         return self.get(action='RecordModify', domain=domain, subDomain=subDomain,
                         value=value, recordId=recordId, recordType=recordType,
-                        recordLine="默认", **kwargs **kwargs)
+                        recordLine="默认", **kwargs)
 
     def record_create(self, **kwargs):
         return self.get(action='RecordCreate', **kwargs)
@@ -121,7 +121,7 @@ class CnsApi(Api):
 
 
 if __name__ == "__main__":
-    api = Api()
+    api = CnsApi()
     __domain = 'phichem.xyz'
     data = api.record_list(domain=__domain)
     with open(os.path.join(conf_dir, "record.list"), "w") as f:

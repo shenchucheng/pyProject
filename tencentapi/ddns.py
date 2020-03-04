@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import socket
 import sqlite3
 import time
@@ -55,6 +57,8 @@ def main():
 
 
 if __name__ == "__main__":
+    import os
+    os.chdir(os.path.dirname(__file__))
     while 1:
         main()
         time.sleep(randint(300, 900))

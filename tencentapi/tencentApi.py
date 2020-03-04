@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
 import base64
 import hashlib
 import hmac
+import json
+import operator
+import os
 import random
 import time
-import operator
-import json
 import urllib.parse
-import yaml 
+
 import urllib3
+import yaml
 
 
 class Api:
@@ -182,7 +183,7 @@ class CnsApi(Api):
             ret[i] = self.records[i]
         return ret
 
-    def record_modify(self, domain, subDomain, value='', recordId='',
+    def record_modify(self, domain, recordId='', subDomain='', value='',
                       recordType='', recordLine='', update=False, **kwargs):
         """
         :param domain: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）
@@ -197,7 +198,17 @@ class CnsApi(Api):
         mx	int	MX 优先级，范围为0 ~ 50，当 recordType 选择 MX 时，mx 参数必选
         :return:
         """
-        info = self.get_record_info(domain, name=subDomain, update=update)
+        kwargs1 = {}
+        if recordId:
+            kwargs1["id"] = recordId
+        elif subDomain:
+            kwargs1["name"] = subDomain
+        info = self.get_record_info(domain, update=update, fetchone=False, **kwargs1)
+        if len(info) == 0:
+            return {"info": "no such record"}
+        elif len(info) > 1:
+            return {"info": "too many records match", "value": info}
+        info = info[0]
         __value, __recordId, __recordType, __recordLine = list(
             info[i] for i in ("value", "id", "type", "line")
         )
@@ -207,9 +218,9 @@ class CnsApi(Api):
             recordType or __recordType,
             recordLine or __recordLine
         )
-        if not any((value, recordId, recordType, recordLine)):
-            raise ValueError("Please do not let all params blank")
-        elif (value, recordId, recordType, recordLine) != (
+        # if not any((value, recordId, recordType, recordLine)):
+        #     raise ValueError("Please do not let all params blank")
+        if (value, recordId, recordType, recordLine) != (
                 __value, __recordId, __recordType, __recordLine):
             ret = self.get(action='RecordModify', domain=domain, subDomain=subDomain,
                            value=value, recordId=recordId, recordType=recordType,
@@ -224,14 +235,62 @@ class CnsApi(Api):
                     yaml.dump(self.records, f)
         return info
 
-    def record_create(self, **kwargs):
-        return self.get(action='RecordCreate', **kwargs)
+    def record_create(self, domain, subDomain, value,
+                      recordType, recordLine, **kwargs):
+        """
+        :param domain: str 要操作的域名（主域名，不包括 www，例如：qcloud.com）
+        :param subDomain: str 子域名，例如：www
+        :param value: str 记录值，例如 IP：192.168.10.2，CNAME：cname.dnspod.com.，MX：mail.dnspod.com.
+        :param recordType: str 记录类型，可选的记录类型为："A"，"CNAME"，"MX"，"TXT"，"NS"，"AAAA"，"SRV"
+        :param recordLine: str 记录的线路名称，例如："默认"
+        :param kwargs:
+        ttl int TTL 值，范围1 - 604800，不同等级域名最小值不同，默认为 600
+        mx	int	MX 优先级，范围为0 ~ 50，当 recordType 选择 MX 时，mx 参数必选
+        :return:
+        """
+        rd = self.get_record_info(domain=domain, name=subDomain,
+                                  value=value, type=recordType, line=recordLine)
+        if rd:
+            return rd
+        __ret = self.get(action='RecordCreate', domain=domain, subDomain=subDomain,
+                         value=value, recordLine=recordLine, recordType=recordType, **kwargs)
+        ret = __ret["data"]
+        kwargs.update({"line": recordLine, "value": value, "type": recordType})
+        # if type(ret) == dict:
+        kwargs.update(ret["record"])
+        for rd in self.records[domain]["records"].copy():
+            if rd["id"] == kwargs["id"]:
+                self.records[domain]["records"].remove(rd)
+        self.records[domain]["records"].append(kwargs)
+        return kwargs
+        # else:
+        #     raise Exception(ret)
 
-    def record_delete(self, **kwargs):
-        return self.get(action='RecordDelete', **kwargs)
+    def __record_delete(self, domain, recordId):
+        return self.get(action='RecordDelete', domain=domain, recordId=recordId)
+
+    def record_delete(self, domain, safe=True, **kwargs):
+        rds = self.__get_record_info(domain=domain, fetchone=False, **kwargs)
+        n = len(rds)
+        if n == 0:
+            msg = "no such record"
+        elif n > 1 and safe:
+            msg = "on the safe mode, could not delete multi-record: {}\n".format(
+                "; ".join(str(i["id"]) for i in rds) + "\n" + ";\n".join(str(i) for i in rds)
+            )
+        else:
+            msg = []
+            for rd in rds:
+                rid = rd["id"]
+                self.get(action='RecordDelete', domain=domain, recordId=rid)
+                msg.append(rid)
+                self.records[domain]["records"].remove(rd)
+            with open(os.path.join(self.conf_dir, "record.list"), "a+") as f:
+                yaml.dump(self.records, f)
+        return msg
 
     def __get_record_info(self, domain, update=False, fetchone=True, **kwargs):
-        ret = self.record_list(domain, update=update)[domain]["records"]
+        ret = self.record_list(domain, update=update)[domain]["records"].copy()
         for i in ret.copy():
             for k, v in kwargs.items():
                 if i[k] != v:
@@ -286,8 +345,20 @@ _conf_doc_pre = get_conf_doc_pre()
 
 if __name__ == "__main__":
     api = CnsApi()
-    domain_info = api.record_list()
+    __domain = list(api.domains)[0]
+    domain_info = api.record_list(__domain)
     print(domain_info)
-    from tencentapi.ddns import get_host_ip
-    ret = api.record_modify(list(api.domains)[0], "www", value=get_host_ip())
-    print(ret)
+    if not api.get_record_info(__domain, name="test"):
+        __id = api.record_create(
+            domain=__domain, subDomain="test",
+            recordType="A", value="192.168.1.1",
+            recordLine="默认"
+        )
+    else:
+        __id = api.get_record_id(__domain, name="test")
+    print(api.get_record_info(__domain, name="test", id=__id))
+    api.record_modify(__domain, subDomain="test", value="127.0.0.1", )
+    print(api.get_record_info(__domain, id=__id))
+    api.record_delete(__domain, id=__id)
+    # print(_ret)
+    # c_ret = api.record_create(list(api.domains)[0], "test", "192.168.1.1", "A", "默认")

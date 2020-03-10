@@ -57,7 +57,7 @@ if __name__ == '__main__':
     import time
     mail = EmailHelper()
     mail.sendmail(
-        "会议时间", "2020-02-14 12:20:00,\n当前: {}".format(
+        "会议时间修改", r"2020-02-14 12:20:00,\n当前: {}".format(
             time.strftime("%Y-%m-%d %H:%M:%S")
         )
     )

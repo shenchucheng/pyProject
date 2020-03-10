@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os, sys
 import subprocess
 import platform
@@ -93,9 +94,15 @@ if __name__ == '__main__':
     if args.cgi:
         handler_class = server.CGIHTTPRequestHandler
     else:
-        handler_class = partial(server.SimpleHTTPRequestHandler,
+        if sys.version.startswith("3.6"):
+            handler_class = server.SimpleHTTPRequestHandler
+        else:
+            handler_class = partial(server.SimpleHTTPRequestHandler,
                                 directory=args.directory)
-    ServerClass = server.ThreadingHTTPServer
+    try:
+        ServerClass = server.ThreadingHTTPServer
+    except AttributeError:
+        ServerClass = server.HTTPServer
     if args.bind == "::":
         ServerClass.address_family = socket.AF_INET6
         ipaddr = "http://[{}]:{}".format(get_ipv6(), args.port)

@@ -1,29 +1,36 @@
 import socket
+from logging import getLogger
 from socket import getaddrinfo
-
 from tencentapi.tencentApi import CnsApi
 
+logger = getLogger("ddns")
 
-def get_host_ip():
+
+def get_host_ip(dns='240e:4c:4008::1'):
     """
     查询本机ip地址
     :return: ip
     """
     s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
     try:
-        s.connect(('240e:4c:4008::1', 80))
+        s.connect((dns, 80))
         ip = s.getsockname()[0]
+        return ip
+    except Exception as e:
+        logger.warning("Fail to get local ip for {}".format(e))
     finally:
         s.close()
-    return ip
 
 
 def get_addr_ip(addr, p=80, **kwargs):
     try:
         r = getaddrinfo(addr, p, **kwargs)
-        return list(i[4][0] for i in r)
-    except Exception:
-        return ""
+        if r:
+            return list(i[4][0] for i in r)
+        else:
+            logger.warning("Can not resolve {}:{} {}".format(addr, p, kwargs or ""))
+    except Exception as e:
+        logger.warning("Fail to get ip of address {}:{} {} for {} ".format(addr, p, kwargs or "", e))
 
 
 class DDns(CnsApi):
@@ -57,9 +64,11 @@ class DDns(CnsApi):
             raise Exception("{}\n please check the config file at {}".format(e, self.conf_path))
         self.addr = ".".join((self.sub_domain, self.domain))
         self.port = self.ddnsinfo.get("port") or 80
+        logger.debug("DDNS initialization successfully, information {}".format(self.ddnsinfo))
 
     def update_record_list(self):
         self.record_list(self.domain, update=True)
+        logger.debug("Update domain {} successfully".format(self.domain))
 
     def get_rm_ip(self):
         return get_addr_ip(self.addr, self.port)
@@ -75,28 +84,54 @@ class DDns(CnsApi):
         ret = self.record_create(
             domain=self.domain, subDomain=info["name"],
             recordType=info["type"], value=ip_local,
+            recordLine=info["line"]
         )
         self.record_delete(domain=self.domain, id=self.id)
+        logger.info("Create record which id {} with ip {} and delete {} with {} for {}.{}".format(
+            ret["id"], ip_local, self.id, info["value"], self.sub_domain, self.domain,
+        ))
         self.id = ret["id"]
 
     def __ddns_modify(self, ip_local):
-        ret = self.record_modify(domain=self.domain, subDomain=self.sub_domain, recordId=self.id, value=ip_local)
+        info = self.get_record_info(domain=self.domain, id=self.id)
+        if ip_local == info["value"]:
+            logger.warning("Record which id {} and host {} has modified: information {}".format(
+                self.id, self.addr, {"ttl": info["ttl"], "interval": self.interval}
+            ))
+        else:
+            ret = self.record_modify(domain=self.domain, subDomain=self.sub_domain, recordId=self.id, value=ip_local)
 
-    def ddns(self, modify=True):
+            logger.info("Update record which id {} and host {} change ip from {} to {} ".format(
+            self.id, self.addr, info["value"], ip_local
+            ))
+
+    def ddns(self, modify=True, **kwargs):
         ip_local = get_host_ip()
         ip_remote = self.get_rm_ip()
         if ip_local not in ip_remote:
+            logger.info("remote: {}, local: {}".format(ip_remote, ip_local))
+            if kwargs.get("mode") == "prod":
+                self.update_record_list()
             if modify:
                 self.__ddns_modify(ip_local)
             else:
                 self.__ddns_delete(ip_local)
+        else:
+            logger.info("Ip {} has not changed".format(ip_local))
 
     def run(self, **kwargs):
         def __main():
             from time import sleep
             while 1:
-                self.ddns(**kwargs)
-                sleep(self.interval)
+                try:
+                    self.ddns(**kwargs)
+                    sleep(self.interval)
+                except KeyboardInterrupt:
+                    logger.info("Exit for user interrupt")
+                    import sys
+                    sys.exit()
+                except Exception as e:
+                    logger.warning("ipv6 ddns error {}".format(e))
 
         if kwargs.get("unblock"):
             from threading import Thread
@@ -108,3 +143,4 @@ class DDns(CnsApi):
 if __name__ == '__main__':
     api = DDns()
     api.ddns()
+    api.run()

@@ -34,6 +34,12 @@ class Api:
         self.config = self.parser()
         self.secretId = self.config["secretId"]
         self.secretKey = self.config["secretKey"]
+        try:
+            from local.loghelper import basicConfig
+            basicConfig()
+        except ImportError:
+            from logging import basicConfig
+        basicConfig(filename=os.path.join(self.conf_dir, "log.txt"))
 
     @property
     def conf_doc(self):
